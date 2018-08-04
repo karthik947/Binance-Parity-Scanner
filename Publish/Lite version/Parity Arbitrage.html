@@ -41,6 +41,7 @@
         <tr><td><h6>Refresh Every(min):</h6></td><td> <input class="col-sm-4" onchange="u3();" type="text" id="par2" value="1"></td></tr>
         <tr><td><h6>Alerts(On/Off):</h6></td><td> <input class="col-sm-4" type="checkbox" id="par3" checked></td></tr>
         <tr><td><h6>Alert above(%):</h6></td><td> <input class="col-sm-4" type="text" id="par4" value="0.5"></td></tr>
+        <tr><td><h6>Follow Coin:</h6></td><td> <input class="col-sm-6" type="text" id="par6" value=""></td></tr>
         </tbody>	
         </table>
         </div>
@@ -98,7 +99,7 @@
     //Global Variables
     var gv_timer=60000,gv_count=0,scanStatus;
     var alert1 = document.getElementById("myAudio");
-    var gv_base=[],gv_stable=[],gv_bidask={},gv_ticker={},gv_symbols=[],gv_symbolj={};
+    var gv_base=[],gv_stable=[],gv_bidask={},gv_ticker={},gv_symbols=[],gv_symbolj={},gv_24hrTicker={};
     
     
                             
@@ -158,6 +159,7 @@
         r1.send();
     }
     
+    
     function getTickerPrice(){
         gv_ticker={};
         gv_symbols=[];
@@ -172,9 +174,24 @@
                 gv_symbols.push(d2[j]["symbol"]);
                 gv_symbolj[d2[j]["symbol"]] = 1;
             }
-            identifyParity();
+            get24hrTickerPrices();
         }
         r2.send();
+    }
+    
+    function get24hrTickerPrices(){
+        gv_24hrTicker={};
+        var r3 = new XMLHttpRequest();
+        r3.open('GET','https://api.binance.com/api/v1/ticker/24hr',false);
+        r3.onload = function (){
+            //Normalize the data
+            var d3 = JSON.parse(r3.responseText);
+            for(x=0;x<d3.length;x++){
+                gv_24hrTicker[d3[x]["symbol"]] = d3[x]["quoteVolume"];
+            }
+            identifyParity();
+        }
+        r3.send();
     }
     
     function identifyParity(){
@@ -192,18 +209,47 @@
                         var lv_calc    = parseFloat(gv_ticker[lv_num]["price"])/parseFloat(gv_ticker[lv_den]["price"]);
                         var lv_overlay = parseFloat(gv_ticker[sym]["price"]);
                         var lv_diff = parseFloat((lv_calc - lv_overlay)*100/lv_overlay);//+ve undervalued -ve overvalued. We need udnervalued
+                        var lv_askw = parseFloat((parseFloat(gv_bidask[lv_num]["askPrice"])/parseFloat(gv_ticker[lv_den]["price"])).toFixed(8));
+                        var lv_bidw = parseFloat((parseFloat(gv_bidask[lv_num]["bidPrice"])/parseFloat(gv_ticker[lv_den]["price"])).toFixed(8));
+                        var lv_pbb=0,lv_pas=0;
+                        var lv_bidv = (parseFloat(gv_bidask[lv_num]["bidPrice"])*parseFloat(gv_bidask[lv_num]["bidQty"])).toFixed(2);
+                        var lv_askv = (parseFloat(gv_bidask[lv_num]["askPrice"])*parseFloat(gv_bidask[lv_num]["askQty"])).toFixed(2);
+                        if(parseFloat(gv_ticker[sym]["price"]) < lv_bidw){//Check for price below bid
+                           lv_pbb = 1;
+                        }
+                        if(parseFloat(gv_ticker[sym]["price"]) > lv_askw){//Check for price above sell sell
+                           lv_pas = 1;
+                        }
+                        
+                        var lv_parityText = gv_stable[m] + ": Market [" + lv_num + "/" + lv_den + "][Val:" + lv_calc.toFixed(8) + "][Percentage:" + lv_diff.toFixed(2) + "]<br/> Stable Coin[" + lv_num + "] -> Bid:" + lv_bidw + " | Ask:" + lv_askw + "<br/>Bid/Ask Strength -> 24HrVolume:" + parseFloat(gv_24hrTicker[lv_num]).toFixed(2) + " | BidVol:" + lv_bidv + " | AskVol:" + lv_askv + "<br/><br/>";
+                        
+                        
+                        if(lv_pbb > 0){
+                           lv_parityText += "<p style='color:green;'><b>Base coin's price is below stable coin's bid price. Good time to buy!!</b></p><br/>";
+                        }
+                        if(lv_pas > 0){
+                           lv_parityText += "<p style='color:red;'><b>Base coin's price is above stable coin's ask price. Good time to sell!!</b></p><br/>";
+                        }
+                        if(lv_pbb === 0 && lv_pas === 0){
+                           lv_parityText += "<p style='color:#d67a17;'><b>Fair to buy. Check how close the Base coin's price is compared to the stable coin's bid price !!</b></p><br/>";
+                        }
+                        
                         gv_final1.push({
                             "symbol" :   sym,
                             "stable" :   gv_stable[m],
-                            "parity" :   gv_stable[m] + ": Market [" + lv_num + "/" + lv_den + "][Val:" + lv_calc.toFixed(8) + "][Percentage:" + lv_diff.toFixed(2) + "]<br/>",
+                            "parity" :   lv_parityText,
                             "pct"    :   lv_diff,
+                            "pbb"    : lv_pbb,
+                            "pas"    : lv_pas,
                         });
                         
                         gv_final2[sym+gv_stable[m]] =  {
                                                             "symbol" :   sym,
                                                             "stable" :   gv_stable[m],
-                                                            "parity" :   gv_stable[m] + ": Market [" + lv_num + "/" + lv_den + "][Val:" + lv_calc.toFixed(8) + "][Percentage:" + lv_diff.toFixed(2) + "]<br/>",
+                                                            "parity" :   lv_parityText,
                                                             "pct"    :   lv_diff,
+                                                            "pbb"    : lv_pbb,
+                                                            "pas"    : lv_pas,
                                                         };
                     }   
                 }
@@ -212,6 +258,7 @@
         
         //Sort descending
         gv_final1 = sortByKey(gv_final1, 'pct');
+        gv_final1 = sortByKey(gv_final1, 'pbb');
         gv_final1.reverse();
         
         //Empty existing rows
@@ -221,28 +268,58 @@
         gv_count = parseInt(document.getElementById("par1").value);
         
         
+        //Get Follow Symbol 
+        var lv_follow = document.getElementById("par6").value;
+        
         //Add new rows
         var lv_sno=0;
-        for(i=0;i<=gv_count-1;i++){
-            var markup='';
-            lv_sno++;
-            
-            //Alert
-            if(gv_final1[i]["pct"] >= parseFloat(document.getElementById("par4").value)){
-               lv_alert='X';
-            }
-            
-            var lv_final = gv_final1[i];
-            markup = "<tr><td>" + lv_sno + "</td><td>" + lv_final["symbol"] + "<br/>" + "Ticker Price:" + gv_ticker[lv_final["symbol"]]["price"] + "<br/>" + "Bid Price:" + gv_bidask[lv_final["symbol"]]["bidPrice"] + "<br/>" + "Ask Price:" + gv_bidask[lv_final["symbol"]]["askPrice"] + "</td><td>" + lv_final["parity"];
-            
-            for(k=0;k<gv_stable.length;k++){
-                if(gv_stable[k] != lv_final["stable"] && gv_final2[lv_final["symbol"]+gv_stable[k]]){
-                   markup += gv_final2[lv_final["symbol"]+gv_stable[k]]["parity"];
+        if(lv_follow.length === 0){
+            for(i=0;i<=gv_count-1;i++){
+                var markup='';
+                lv_sno++;
+
+                //Alert
+                if(gv_final1[i]["pct"] >= parseFloat(document.getElementById("par4").value)){
+                   lv_alert='X';
+                }
+
+                var lv_final = gv_final1[i];
+                markup = "<tr><td>" + lv_sno + "</td><td>" + lv_final["symbol"] + "<br/>" + "Ticker Price:" + gv_ticker[lv_final["symbol"]]["price"] + "<br/>" + "Bid Price:" + gv_bidask[lv_final["symbol"]]["bidPrice"] + "<br/>" + "Ask Price:" + gv_bidask[lv_final["symbol"]]["askPrice"] + "</td><td>" + lv_final["parity"];
+
+                for(k=0;k<gv_stable.length;k++){
+                    if(gv_stable[k] != lv_final["stable"] && gv_final2[lv_final["symbol"]+gv_stable[k]]){
+                       markup += gv_final2[lv_final["symbol"]+gv_stable[k]]["parity"];
+                    }
+                }
+                markup += "</td><td>" + lv_final["pct"].toFixed(2) + "</td><tr>";
+
+                $("#tartbit tbody").append(markup);
+            }  
+        }
+        else{
+            for(i=0;i<gv_final1.length;i++){
+                if(lv_follow === gv_final1[i]["symbol"]){
+                    var markup='';
+                    lv_sno++;
+
+                    //Alert
+                    if(gv_final1[i]["pct"] >= parseFloat(document.getElementById("par4").value)){
+                       lv_alert='X';
+                    }
+
+                    var lv_final = gv_final1[i];
+                    markup = "<tr><td>" + lv_sno + "</td><td>" + lv_final["symbol"] + "<br/>" + "Ticker Price:" + gv_ticker[lv_final["symbol"]]["price"] + "<br/>" + "Bid Price:" + gv_bidask[lv_final["symbol"]]["bidPrice"] + "<br/>" + "Ask Price:" + gv_bidask[lv_final["symbol"]]["askPrice"] + "</td><td>" + lv_final["parity"];
+
+                    for(k=0;k<gv_stable.length;k++){
+                        if(gv_stable[k] != lv_final["stable"] && gv_final2[lv_final["symbol"]+gv_stable[k]]){
+                           markup += gv_final2[lv_final["symbol"]+gv_stable[k]]["parity"];
+                        }
+                    }
+                    markup += "</td><td>" + lv_final["pct"].toFixed(2) + "</td><tr>";
+
+                    $("#tartbit tbody").append(markup);  
                 }
             }
-            markup += "</td><td>" + lv_final["pct"].toFixed(2) + "</td><tr>";
-
-            $("#tartbit tbody").append(markup);
         }
         
         
