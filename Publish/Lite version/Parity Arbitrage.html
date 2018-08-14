@@ -22,7 +22,7 @@
   <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/js/bootstrap.min.js"></script>
   <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
 <script src="jQuery 3.2.1.js"></script>
-    
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 </head>
 <body>
     
@@ -33,15 +33,20 @@
     <div class="container">  
      <h1>Binance Parity Scanner</h1>
      <p>This tool analysis all the coins and Binance exchange and provides the list of available parity trade opportunities</p>
-        <div class="container row col-sm-5">
+        <div class="container row col-sm-12">
         <table class="table table-borderless">
         <tbody>
         <tr><td><h6>Scan(On/Off):</h6></td><td> <input onchange="u4();" class="col-sm-4" type="checkbox" id="par5"></td></tr>
         <tr><td><h6>Show Only(rows):</h6></td><td> <input class="col-sm-4" type="text" id="par1" value="20"></td></tr>
         <tr><td><h6>Refresh Every(min):</h6></td><td> <input class="col-sm-4" onchange="u3();" type="text" id="par2" value="1"></td></tr>
+        <tr><td><h6>Min. Volume:</h6></td><td> <input class="col-sm-4" type="text" placeholder="BTC" id="parbtcv" value=""></td>
+                                          <td> <input class="col-sm-4" type="text" placeholder="ETH" id="parethv" value="1000"></td>
+                                          <td> <input class="col-sm-4" type="text" placeholder="BNB" id="parbnbv" value=""></td>
+                                          <td> <input class="col-sm-4" type="text" placeholder="USD" id="parusdv" value=""></td></tr>
         <tr><td><h6>Alerts(On/Off):</h6></td><td> <input class="col-sm-4" type="checkbox" id="par3" checked></td></tr>
         <tr><td><h6>Alert above(%):</h6></td><td> <input class="col-sm-4" type="text" id="par4" value="0.5"></td></tr>
-        <tr><td><h6>Follow Coin:</h6></td><td> <input class="col-sm-6" type="text" id="par6" value=""></td></tr>
+        <tr><td><h6>Follow Coin:</h6></td><td> <input class="col-sm-6" type="text" id="par6" value=""></td>
+            <td><button onclick="refreshPage();" id="refreshBtn" type="button" class="btn btn-dark">Refresh</button></td></tr>
         </tbody>	
         </table>
         </div>
@@ -52,7 +57,7 @@
         <tr><td><h6>Base Markets:</h6></td>
         <td><input id="bbtc" type="checkbox" >BTC</td>
         <td><input id="beth" type="checkbox" checked>ETH</td>
-        <td><input id="bbnb" type="checkbox" checked>BNB</td>
+        <td><input id="bbnb" type="checkbox" >BNB</td>
         <td><input id="busdt" type="checkbox" >USDT</td></tr>
         <tr><td><h6>Stable Markets:</h6></td>
         <td><input id="sbtc" type="checkbox" checked>BTC</td>
@@ -92,6 +97,33 @@
         </tbody>
       </table>
     </div>
+    <div class="container row">
+         <button type="button" class="btn btn-success float-right" data-toggle="collapse" data-target="#AnalyzeCoin">Analyze Coin:</button>
+    </div>
+    <div id="AnalyzeCoin" class="collapse">
+            <br>
+            <div class="card">
+            <div class="card-body">
+                <div class="container row col-sm-8">
+                <table class="table table-borderless">
+                <tbody>
+                <tr><td><h6>Base Pair:</h6></td><td> <input class="col-sm-4" type="text" placeholder="Base" id="parbcoin" value=""></td></tr>
+                <tr><td><h6>Agaist:</h6></td><td> 
+                   <select id="parmkt" class="col-sm-4">
+                   <option value="BTC">BTC</option>
+                   <option value="ETH">ETH</option>
+                   <option value="BNB">BNB</option>
+                   <option value="USD">USDT</option></select></td></tr>
+                <tr><td><button onclick="refreshChart();" id="refreshChart" type="button" class="btn btn-dark">Refresh</button></td></tr>
+                </tbody>	
+                </table>
+                </div>
+                <div class="container">
+                    <div id="chartContainer" style="height: 500px; width: 100%;"></div>
+                </div>
+            </div>
+            </div>
+    </div>
     </div>
 </body>
 <script>
@@ -99,7 +131,9 @@
     //Global Variables
     var gv_timer=60000,gv_count=0,scanStatus;
     var alert1 = document.getElementById("myAudio");
-    var gv_base=[],gv_stable=[],gv_bidask={},gv_ticker={},gv_symbols=[],gv_symbolj={},gv_24hrTicker={};
+    var gv_base=[],gv_stable=[],gv_symbols=[],gv_symbolj={},gv_24hrTicker={};
+    var gv_volume={
+        'ETH': 1000};
     
     
                             
@@ -110,25 +144,51 @@
     
     function u4(){
         if(document.getElementById("par5").checked){
-            runScanner();
+            runAnalysis();
+            scanStatus = setInterval(runAnalysis,gv_timer);
         }
         else{
          clearInterval(scanStatus);
         }
     }
     
-    function runScanner(){
-        updateFilters();
-        scanBinance();
-        scanStatus = setInterval(runScanner,gv_timer);
+    function runAnalysis(){       
+        gv_symbols=[];
+        gv_symbolj={};
+        gv_24hrTicker={};
+        
+        //Get minimum volume 
+        gv_volume["BTC"] = document.getElementById('parbtcv').value ? document.getElementById('parbtcv').value : 0 ;
+        gv_volume["ETH"] = document.getElementById('parethv').value ? document.getElementById('parethv').value : 0 ;
+        gv_volume["BNB"] = document.getElementById('parbnbv').value ? document.getElementById('parbnbv').value : 0 ;
+        gv_volume["SDT"] = document.getElementById('parusdv').value ? document.getElementById('parusdv').value : 0 ;
+        
+        var r3 = new XMLHttpRequest();
+        r3.open('GET','https://api.binance.com/api/v1/ticker/24hr',true);
+        r3.onload = function (){
+            //Normalize the data
+            var d3 = JSON.parse(r3.responseText);
+            for(x=0;x<d3.length;x++){
+                gv_24hrTicker[d3[x]["symbol"]] = d3[x];
+                gv_symbolj[d3[x]["symbol"]] = 1; 
+                if(parseFloat(d3[x]["bidPrice"])){//Exclude coins like VENETH, which have 0 bid/ask
+                    if(parseFloat(d3[x]["quoteVolume"]) >= gv_volume[d3[x]["symbol"].substring(d3[x]["symbol"].length-3,d3[x]["symbol"].length)]){//Check 24hr volume is above minimum threshold
+                      gv_symbols.push(d3[x]["symbol"]); 
+                    }
+                }
+            }
+            identifyParity();
+        }
+        r3.send();
     }
     
-    function scanBinance(){
-        //GET Bid/Ask for all symbols
-        getBidAskPrices();
+    function refreshPage(){
+        clearInterval(scanStatus);
+        runAnalysis();
     }
     
-    function updateFilters(){
+    function identifyParity(){
+        
         gv_base=[];
         gv_stable=[];
         //Update the base pairs
@@ -142,59 +202,8 @@
         if(document.getElementById("seth").checked){gv_stable.push("ETH");}
         if(document.getElementById("sbnb").checked){gv_stable.push("BNB");}
         if(document.getElementById("susdt").checked){gv_stable.push("USDT");}
-    }
-    
-    function getBidAskPrices(){
-        gv_bidask={};
-        var r1 = new XMLHttpRequest();
-        r1.open('GET','https://api.binance.com/api/v3/ticker/bookTicker',false);
-        r1.onload = function (){
-            //Normalize the data
-            var d1 = JSON.parse(r1.responseText);
-            for(i=0;i<d1.length;i++){
-                gv_bidask[d1[i]["symbol"]] = d1[i];
-            }
-            getTickerPrice();
-        }
-        r1.send();
-    }
-    
-    
-    function getTickerPrice(){
-        gv_ticker={};
-        gv_symbols=[];
-        gv_symbolj={};
-        var r2 = new XMLHttpRequest();
-        r2.open('GET','https://api.binance.com/api/v3/ticker/price',false);
-        r2.onload = function (){
-            //Normalize the data
-            var d2 = JSON.parse(r2.responseText);
-            for(j=0;j<d2.length;j++){
-                gv_ticker[d2[j]["symbol"]] = d2[j];
-                gv_symbols.push(d2[j]["symbol"]);
-                gv_symbolj[d2[j]["symbol"]] = 1;
-            }
-            get24hrTickerPrices();
-        }
-        r2.send();
-    }
-    
-    function get24hrTickerPrices(){
-        gv_24hrTicker={};
-        var r3 = new XMLHttpRequest();
-        r3.open('GET','https://api.binance.com/api/v1/ticker/24hr',false);
-        r3.onload = function (){
-            //Normalize the data
-            var d3 = JSON.parse(r3.responseText);
-            for(x=0;x<d3.length;x++){
-                gv_24hrTicker[d3[x]["symbol"]] = d3[x]["quoteVolume"];
-            }
-            identifyParity();
-        }
-        r3.send();
-    }
-    
-    function identifyParity(){
+        
+        
         var gv_final1=[],gv_final2={},lv_alert='';  
         
         for(l=0;l<gv_base.length;l++){
@@ -206,22 +215,23 @@
                     if(sym.substr(sym.length-gv_base[l].length,sym.length) === gv_base[l] && gv_symbolj[lv_den] && gv_symbolj[lv_num]){
                         
                         //Perform calculation
-                        var lv_calc    = parseFloat(gv_ticker[lv_num]["price"])/parseFloat(gv_ticker[lv_den]["price"]);
-                        var lv_overlay = parseFloat(gv_ticker[sym]["price"]);
+                        var lv_calc    = parseFloat(gv_24hrTicker[lv_num]["lastPrice"])/parseFloat(gv_24hrTicker[lv_den]["lastPrice"]);
+                        var lv_overlay = parseFloat(gv_24hrTicker[sym]["bidPrice"]);//Changed from lastPrice to bidPrice to accurately calculate profit %
                         var lv_diff = parseFloat((lv_calc - lv_overlay)*100/lv_overlay);//+ve undervalued -ve overvalued. We need udnervalued
-                        var lv_askw = parseFloat((parseFloat(gv_bidask[lv_num]["askPrice"])/parseFloat(gv_ticker[lv_den]["price"])).toFixed(8));
-                        var lv_bidw = parseFloat((parseFloat(gv_bidask[lv_num]["bidPrice"])/parseFloat(gv_ticker[lv_den]["price"])).toFixed(8));
+                        var lv_askw = parseFloat((parseFloat(gv_24hrTicker[lv_num]["askPrice"])/parseFloat(gv_24hrTicker[lv_den]["lastPrice"])).toFixed(8));
+                        var lv_bidw = parseFloat((parseFloat(gv_24hrTicker[lv_num]["bidPrice"])/parseFloat(gv_24hrTicker[lv_den]["lastPrice"])).toFixed(8));
                         var lv_pbb=0,lv_pas=0;
-                        var lv_bidv = (parseFloat(gv_bidask[lv_num]["bidPrice"])*parseFloat(gv_bidask[lv_num]["bidQty"])).toFixed(2);
-                        var lv_askv = (parseFloat(gv_bidask[lv_num]["askPrice"])*parseFloat(gv_bidask[lv_num]["askQty"])).toFixed(2);
-                        if(parseFloat(gv_ticker[sym]["price"]) < lv_bidw){//Check for price below bid
+                        var lv_bidv = (parseFloat(gv_24hrTicker[lv_num]["bidPrice"])*parseFloat(gv_24hrTicker[lv_num]["bidQty"])).toFixed(2);
+                        var lv_askv = (parseFloat(gv_24hrTicker[lv_num]["askPrice"])*parseFloat(gv_24hrTicker[lv_num]["askQty"])).toFixed(2);
+                        var lv_triarbt = (((parseFloat(gv_24hrTicker[lv_num]["bidPrice"])/parseFloat(gv_24hrTicker[lv_den]["bidPrice"])) - parseFloat(gv_24hrTicker[sym]["askPrice"]))*100/parseFloat(gv_24hrTicker[sym]["askPrice"])).toFixed(2);
+                        if(parseFloat(gv_24hrTicker[sym]["lastPrice"]) < lv_bidw){//Check for price below bid
                            lv_pbb = 1;
                         }
-                        if(parseFloat(gv_ticker[sym]["price"]) > lv_askw){//Check for price above sell sell
+                        if(parseFloat(gv_24hrTicker[sym]["lastPrice"]) > lv_askw){//Check for price above sell sell
                            lv_pas = 1;
                         }
                         
-                        var lv_parityText = gv_stable[m] + ": Market [" + lv_num + "/" + lv_den + "][Val:" + lv_calc.toFixed(8) + "][Percentage:" + lv_diff.toFixed(2) + "]<br/> Stable Coin[" + lv_num + "] -> Bid:" + lv_bidw + " | Ask:" + lv_askw + "<br/>Bid/Ask Strength -> 24HrVolume:" + parseFloat(gv_24hrTicker[lv_num]).toFixed(2) + " | BidVol:" + lv_bidv + " | AskVol:" + lv_askv + "<br/><br/>";
+                        var lv_parityText = gv_stable[m] + ": Market [" + lv_num + "/" + lv_den + "][Val:" + lv_calc.toFixed(8) + "][Percentage:" + lv_diff.toFixed(2) + "]<br/> Stable Coin[" + lv_num + "] -> Bid:" + lv_bidw + " | Ask:" + lv_askw + "<br/>Bid/Ask Strength -> 24HrVolume:" + parseFloat(gv_24hrTicker[lv_num]).toFixed(2) + " | BidVol:" + lv_bidv + " | AskVol:" + lv_askv + "<br/>Triang Arb:" + lv_triarbt + "<br/><br/>";
                         
                         
                         if(lv_pbb > 0){
@@ -257,9 +267,14 @@
         }
         
         //Sort descending
+        //gv_final1 = sortByKey(gv_final1, 'pct');
+        //gv_final1 = sortByKey(gv_final1, 'pbb');
+        //gv_final1.reverse();
         gv_final1 = sortByKey(gv_final1, 'pbb');
         gv_final1 = sortByKey(gv_final1, 'pct');
         gv_final1.reverse();
+        
+        
         
         //Empty existing rows
         $("#tartbit tbody").html("");
@@ -284,7 +299,10 @@
                 }
 
                 var lv_final = gv_final1[i];
-                markup = "<tr><td>" + lv_sno + "</td><td>" + lv_final["symbol"] + "<br/>" + "Ticker Price:" + gv_ticker[lv_final["symbol"]]["price"] + "<br/>" + "Bid Price:" + gv_bidask[lv_final["symbol"]]["bidPrice"] + "<br/>" + "Ask Price:" + gv_bidask[lv_final["symbol"]]["askPrice"] + "</td><td>" + lv_final["parity"];
+                var lv_bidp = parseFloat(gv_24hrTicker[lv_final["symbol"]]["bidPrice"]);
+                var lv_askp = parseFloat(gv_24hrTicker[lv_final["symbol"]]["askPrice"]);
+                var lv_sprd = parseFloat((lv_askp - lv_bidp)*100/lv_bidp).toFixed(2);
+                markup = "<tr><td>" + lv_sno + "</td><td>" + lv_final["symbol"] + "<br/>" + "Ticker Price:" + gv_24hrTicker[lv_final["symbol"]]["lastPrice"] + "<br/>" + "Bid Price:" + lv_bidp + "<br/>" + "Ask Price:" + lv_askp + "<br/>" + "Diff:" + lv_sprd + "%</td><td>" + lv_final["parity"];
 
                 for(k=0;k<gv_stable.length;k++){
                     if(gv_stable[k] != lv_final["stable"] && gv_final2[lv_final["symbol"]+gv_stable[k]]){
@@ -308,7 +326,10 @@
                     }
 
                     var lv_final = gv_final1[i];
-                    markup = "<tr><td>" + lv_sno + "</td><td>" + lv_final["symbol"] + "<br/>" + "Ticker Price:" + gv_ticker[lv_final["symbol"]]["price"] + "<br/>" + "Bid Price:" + gv_bidask[lv_final["symbol"]]["bidPrice"] + "<br/>" + "Ask Price:" + gv_bidask[lv_final["symbol"]]["askPrice"] + "</td><td>" + lv_final["parity"];
+                    var lv_bidp = parseFloat(gv_24hrTicker[lv_final["symbol"]]["bidPrice"]);
+                    var lv_askp = parseFloat(gv_24hrTicker[lv_final["symbol"]]["askPrice"]);
+                    var lv_sprd = parseFloat((lv_askp - lv_bidp)*100/lv_bidp).toFixed(2);
+                    markup = "<tr><td>" + lv_sno + "</td><td>" + lv_final["symbol"] + "<br/>" + "Ticker Price:" + gv_24hrTicker[lv_final["symbol"]]["lastPrice"] + "<br/>" + "Bid Price:" + lv_bidp + "<br/>" + "Ask Price:" + lv_askp + "<br/>" + "Diff:" + lv_sprd + "%</td><td>" + lv_final["parity"];
 
                     for(k=0;k<gv_stable.length;k++){
                         if(gv_stable[k] != lv_final["stable"] && gv_final2[lv_final["symbol"]+gv_stable[k]]){
@@ -338,6 +359,88 @@
         return array.sort(function(a, b) {
             var x = a[key]; var y = b[key];
             return ((x < y) ? -1 : ((x > y) ? 1 : 0));
+        });
+    }
+    
+    function refreshChart(){
+        
+        var lv_base = document.getElementById('parbcoin').value;
+        var lv_mkt = document.getElementById('parmkt').value;
+        var lv_num,lv_den,r1=[],r2=[],data1x=[],data1y=[],r3=[],data2y=[],r4,data3y=[],data4y=[];
+        
+        lv_num = lv_base.substring(0,lv_base.length -3) + lv_mkt;
+        lv_den = lv_base.substring(lv_base.length -3,lv_base.length) + lv_mkt;
+        
+        request('GET', 'https://api.binance.com/api/v1/klines?symbol=' + lv_num + '&interval=1m&limit=500')
+        .then(function (e1) {
+            r1 = JSON.parse(e1.target.responseText);
+            return request('GET', 'https://api.binance.com/api/v1/klines?symbol=' + lv_den + '&interval=1m&limit=500')
+        }).
+        then(function (e2) {
+            r2 = JSON.parse(e2.target.responseText);
+            return request('GET', 'https://api.binance.com/api/v1/klines?symbol=' + document.getElementById('parbcoin').value + '&interval=1m&limit=500')
+            
+        }).
+        then(function (e3) {
+            r3 = JSON.parse(e3.target.responseText);
+            return request('GET', 'https://api.binance.com/api/v1/ticker/24hr?symbol=' + lv_num)
+            
+        }).
+        then(function (e4) {
+            r4 = JSON.parse(e4.target.responseText);
+            
+            var lv_bidw = parseFloat((parseFloat(r4["bidPrice"])/parseFloat(r2[r2.length-1]["4"])).toFixed(8));
+            var lv_askw = parseFloat((parseFloat(r4["askPrice"])/parseFloat(r2[r2.length-1]["4"])).toFixed(8));
+            
+            //Calculate the dataset
+            for(i=0;i<r1.length;i++){
+                data1x.push(i);
+                data1y.push(parseFloat((parseFloat(r1[i][4])/parseFloat(r2[i][4])).toFixed(8)));
+                data2y.push(parseFloat(r3[i][4]));
+                data3y.push(lv_bidw);
+                data4y.push(lv_askw);
+            }
+            
+            document.getElementById('chartContainer').innerHTML = '';
+            TESTER = document.getElementById('chartContainer');
+
+
+            Plotly.newPlot( TESTER, [{
+                x: data1x,
+                y: data1y,
+                mode: 'lines',
+                name: lv_num + '/' + lv_den,
+                type: 'scatter'},{
+                x: data1x,
+                y: data2y,
+                mode: 'lines',
+                name: document.getElementById('parbcoin').value,
+                type: 'scatter'},{
+                x: data1x,
+                y: data3y,
+                mode: 'lines',
+                name: "Current Bid:" + lv_num,
+                type: 'scatter'},{
+                x: data1x,
+                y: data4y,
+                mode: 'lines',
+                name: "Current Ask:" + lv_num,
+                type: 'scatter'}]);
+            
+        }).
+        catch(function(err){
+            console.log(err);
+        });
+        
+    }
+    
+    function request(method, url) {
+        return new Promise(function (resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            xhr.open(method, url);
+            xhr.onload = resolve;
+            xhr.onerror = reject;
+            xhr.send();
         });
     }
     
